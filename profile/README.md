@@ -13,3 +13,8 @@ Primary features:
 * Graphs represented as sparse adjacency matrices
 * [OpenCypher](http://www.opencypher.org/) with proprietary extensions as a query language
   * Queries are translated into linear algebra expressions
+
+
+<a href="https://orynth.dev/projects/falkordb" target="_blank" rel="noopener">
+  <img src="https://orynth.dev/api/badge/falkordb?theme=light&style=default" alt="Featured on Orynth" width="260" height="80" />
+</a>
