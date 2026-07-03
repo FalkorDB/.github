@@ -13,3 +13,14 @@ Primary features:
 * Graphs represented as sparse adjacency matrices
 * [OpenCypher](http://www.opencypher.org/) with proprietary extensions as a query language
   * Queries are translated into linear algebra expressions
+
+
+## What you can build with FalkorDB
+
+* **[GraphRAG](https://www.falkordb.com/graphrag/)** &mdash; Combine knowledge graphs with retrieval-augmented generation to give LLMs accurate, low-latency context. Get started with the [GraphRAG-SDK](https://github.com/FalkorDB/GraphRAG-SDK).
+* **[Code-Graph](https://github.com/FalkorDB/code-graph)** &mdash; Explore, analyze and visualize your codebase as a knowledge graph to power code understanding and AI assistants.
+* **Agentic Memory** &mdash; Use FalkorDB as the graph-backed memory layer for AI agents through popular frameworks:
+  * [Mem0](https://github.com/mem0ai/mem0)
+  * [Cognee](https://github.com/topoteretes/cognee)
+  * [Graphiti](https://github.com/getzep/graphiti)
+* **[QueryWeaver](https://github.com/FalkorDB/QueryWeaver)** &mdash; An open-source Text2SQL tool that turns natural language into SQL using graph-powered schema understanding, letting you ask your database questions in plain English.
