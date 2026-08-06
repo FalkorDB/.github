@@ -14,13 +14,19 @@ publish.
 
 ## Supported Versions
 
-We release patches for security vulnerabilities. Which versions are eligible for
-receiving such patches depends on the CVSS v3.0 Rating:
+Because our repositories version independently, support is defined per
+repository rather than by a single version table:
 
-| CVSS v3.0 | Supported Versions                        |
-| --------- | ----------------------------------------- |
-| X.Y.Z     | Releases within the previous three months |
-| X.Y.Z     | Most recent release                       |
+| Version                                    | Supported          |
+| ------------------------------------------ | ------------------ |
+| Latest release of the repository           | :white_check_mark: |
+| Releases from the previous three months    | :white_check_mark: |
+| Anything older                             | :x:                |
+
+Fixes are delivered in a new release of the affected repository. We generally do
+not backport security fixes to older lines; please upgrade to the latest release.
+If you depend on an older version and cannot upgrade, contact us at the address
+below and we will discuss options.
 
 ## Reporting a Vulnerability
 

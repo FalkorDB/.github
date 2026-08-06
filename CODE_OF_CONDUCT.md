@@ -1,5 +1,9 @@
-
 # Contributor Covenant Code of Conduct
+
+This Code of Conduct applies to **all repositories in the
+[FalkorDB organization](https://github.com/FalkorDB)**, as well as our
+[Discussions](https://github.com/orgs/FalkorDB/discussions) and any other
+community space we host.
 
 ## Our Pledge
 
