@@ -20,8 +20,11 @@
 #
 # Pin to a full commit SHA rather than a branch: `secrets: inherit` and mutable
 # refs together would let any later change here run with the caller's secrets.
-# Dependabot's github-actions ecosystem updates `jobs.<id>.uses` pins, so the
-# clients still get changes made here without hand-editing eight workflows.
+# Dependabot's github-actions ecosystem updates `jobs.<id>.uses` pins, so where
+# the calling repo has it enabled (all the clients currently do), the pin is
+# kept current automatically and the clients still get changes made here without
+# hand-editing eight workflows. Without such an updater, the pin is yours to
+# bump.
 #
 # The `github` context always belongs to the caller, so the repository, workflow
 # name and run URL below are the calling repo's without being passed in.
@@ -85,8 +88,12 @@ jobs:
             "$RUN_URL" \
             "" \
             "Set the \`DRIVERS_GOOGLE_CHAT_WEBHOOK_URL\` secret to receive this in Google Chat instead.")
-          gh label create "$LABEL" --force \
-            --color d93f0b --description "Nightly CI run against falkordb/falkordb:edge is failing"
+          # Create the label only when it is missing: `--force` would overwrite
+          # the colour and description of a pre-existing label of the same name.
+          if ! gh api "repos/$GH_REPO/labels/$LABEL" --silent 2>/dev/null; then
+            gh label create "$LABEL" \
+              --color d93f0b --description "Nightly CI run against falkordb/falkordb:edge is failing"
+          fi
           # Find the issue by label rather than `--search`: the search index is
           # only eventually consistent, so two failures in quick succession
           # would each open their own issue. Label filtering goes through the
