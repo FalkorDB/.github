@@ -1,0 +1,16 @@
+name: TMP verify reusable reporter
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  call:
+    permissions:
+      issues: write
+    uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@fix/report-scheduled-failure-hardening
+    with:
+      issue-title: ${{ inputs.title }}
