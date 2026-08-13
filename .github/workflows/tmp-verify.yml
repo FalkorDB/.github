@@ -1,0 +1,12 @@
+name: TMP verify reusable reporter
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  call:
+    permissions:
+      issues: write
+    uses: ./.github/workflows/report-scheduled-failure.yml
+    with:
+      issue-title: "TEST: shared report-scheduled-failure workflow"
