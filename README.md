@@ -1,71 +1,127 @@
 # FalkorDB/.github
 
-Organization-wide defaults and shared CI for the [FalkorDB](https://github.com/FalkorDB) repositories.
+Organization-wide defaults and shared automation for every repository in the
+[FalkorDB](https://github.com/FalkorDB) GitHub organization.
 
-## What lives here
+> Looking for FalkorDB itself? Head to [FalkorDB/FalkorDB](https://github.com/FalkorDB/FalkorDB),
+> the [docs](https://docs.falkordb.com), or [www.falkordb.com](https://www.falkordb.com).
 
-| Path | What it does |
-| --- | --- |
-| [`profile/README.md`](profile/README.md) | The public overview shown on [github.com/FalkorDB](https://github.com/FalkorDB). |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`SECURITY.md`](SECURITY.md) | Default community files. GitHub shows them in every FalkorDB repository that has no file of its own. |
-| [`.github/workflows/`](.github/workflows) | Reusable workflows that FalkorDB repositories call, so a fix lands once instead of in every copy. |
+## What's in this repository
 
-## Shared workflows
+| Path | Purpose |
+| ---- | ------- |
+| [`profile/README.md`](profile/README.md) | The page shown on the [organization profile](https://github.com/FalkorDB). |
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | Default Code of Conduct ([Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)). |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Default contribution guidelines: licensing, issues vs. Discussions, PR flow. |
+| [`SECURITY.md`](SECURITY.md) | Default security policy and vulnerability reporting process. |
+| [`.github/workflows/report-scheduled-failure.yml`](.github/workflows/report-scheduled-failure.yml) | Reusable workflow that reports failing nightly runs against `falkordb/falkordb:edge`. |
+| [`.github/workflows/release-notes.yml`](.github/workflows/release-notes.yml) | Reusable workflow that rewrites a release's auto-generated notes into user-facing ones. Its scripts live in [`.github/scripts/release-notes/`](.github/scripts/release-notes). |
 
-| Workflow | What it does | Used by |
-| --- | --- | --- |
-| [`release-notes.yml`](.github/workflows/release-notes.yml) | Rewrites a release's auto-generated notes into user-facing ones with an Azure OpenAI model, on publish or by hand. | falkordb-browser |
-| [`report-scheduled-failure.yml`](.github/workflows/report-scheduled-failure.yml) | Reports a failed nightly run against `falkordb/falkordb:edge` to Google Chat, or to a tracking issue. | The client libraries |
+## Default community health files
 
-Each workflow's header comment has the full caller to copy, its inputs and the permissions it needs.
+GitHub uses the `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` and `SECURITY.md` in this
+repository for any FalkorDB repository that doesn't have its own copy (in its root,
+`docs/` or `.github/` folder). A repository's own file always takes precedence.
 
-### Polish release notes
+Because these files apply to every repository at once, keep them generic: anything
+specific to one project belongs in that project's own repository.
 
-When a release is published, the workflow rewrites GitHub's generated notes:
+## Reusable workflows
 
-- It drops changes users don't notice, such as dependency bumps, CI and refactors.
-- It writes one plain sentence per change, grouped under features, improvements, fixes, security and deployment.
-- It keeps GitHub's original notes collapsed at the bottom.
+### `report-scheduled-failure`
 
-Reruns start again from those originals. Your repository also gets a manual **Run workflow** button, for one tag, a range of tags, or a dry run that only prints the result.
+A cron-triggered workflow has nobody watching it, so a failing nightly run can go
+unnoticed. This workflow posts the failure to the drivers team's Google Chat, or,
+if no webhook is configured, opens (and then comments on) a single tracking issue
+labelled `nightly-edge-failure` in the calling repository.
 
-**To add it to a repository:**
-
-1. Copy the caller from the header of [`release-notes.yml`](.github/workflows/release-notes.yml) into `.github/workflows/release-notes.yml` in your repository.
-2. Set `product` to the name your users know the product by. Optionally set `product-description` to one phrase on what it is.
-3. Turn on `whats-new: true` only if your product reads a `## What's New` section from the release notes, as FalkorDB Browser does.
-4. Run it by hand with **dry_run** on, to check the output before the next release.
-
-It needs these on the organization or on the calling repository:
-
-| Name | Kind | Value |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | Secret | Key for the Azure OpenAI resource |
-| `AZURE_OPENAI_ENDPOINT` | Variable | The resource URL, e.g. `https://my-resource.openai.azure.com` |
-| `AZURE_OPENAI_DEPLOYMENT` | Variable, optional | The model deployment name; defaults to `gpt-6-luna` |
-
-To keep a section of your own in the notes that the model must not touch (FalkorDB Browser keeps its download links this way), put it between `<!-- release-downloads:start -->` and `<!-- release-downloads:end -->` lines. The workflow leaves it out of the model's input and puts it back unchanged.
-
-### Report scheduled failure
-
-Add it as the last job of a workflow that runs on a schedule. When the run fails, it posts to the drivers team's Google Chat. Without the `DRIVERS_GOOGLE_CHAT_WEBHOOK_URL` secret, it opens or updates one tracking issue instead. See the header of [`report-scheduled-failure.yml`](.github/workflows/report-scheduled-failure.yml) for the job to copy.
-
-## Calling a shared workflow
+Call it from the workflow that runs against `falkordb/falkordb:edge`:
 
 ```yaml
-uses: FalkorDB/.github/.github/workflows/<name>.yml@<ref>
+report-scheduled-failure:
+  name: Report scheduled failure
+  needs: [build]  # every job the run should be considered failed for
+  if: ${{ always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure') }}
+  permissions:
+    issues: write  # required: a called workflow can only downgrade permissions
+  uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@<full commit sha>
+  secrets:
+    DRIVERS_GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.DRIVERS_GOOGLE_CHAT_WEBHOOK_URL }}
 ```
 
-- **A full commit SHA** is the safer choice. Dependabot's `github-actions` updates keep it current where they're enabled.
-- **`@main`** picks up every change merged here on the next run, with no PR in your repository.
+| Name | Kind | Required | Description |
+| ---- | ---- | -------- | ----------- |
+| `issue-title` | input | no | Title of the tracking issue. Defaults to `CI is failing against falkordb/falkordb:edge`; keep it stable per repository. |
+| `DRIVERS_GOOGLE_CHAT_WEBHOOK_URL` | secret | no | Google Chat incoming webhook. When unset, the tracking-issue fallback is used. |
 
-A shared workflow runs with the secrets and token permissions your caller gives it. So a change merged here reaches every repository that follows `main`. Review changes to this repository with that in mind.
+**Pin to a full commit SHA, not a branch.** Passing secrets to a mutable ref would let
+any later change here run with the caller's secrets. Dependabot's `github-actions`
+ecosystem keeps `uses:` pins up to date in repositories where it is enabled.
 
-A called workflow can only keep or narrow the permissions its caller grants. If a run fails with a permissions error, compare the caller's `permissions:` with the list in the workflow's header.
+### `release-notes`
 
-## Adding a shared workflow
+GitHub's auto-generated release notes list PR titles, most of which mean little to
+users. When a release is published, this workflow rewrites them with an Azure OpenAI
+model:
 
-1. Add it under `.github/workflows/` with `on: workflow_call`, and declare its inputs and secrets.
-2. Start the file with a header comment that explains what it does and gives the caller to copy, as the existing ones do.
-3. If it needs scripts, keep them under `.github/scripts/<workflow>/`. Check them out at the workflow's own commit, as `release-notes.yml` does. The `github` context belongs to the caller, so a plain checkout gets the caller's repository instead.
-4. Add it to the table above.
+- It drops changes users don't notice, such as dependency bumps, CI and refactors.
+- It writes one plain sentence per remaining change, under features, improvements,
+  fixes, security and deployment.
+- It keeps GitHub's original notes collapsed at the bottom.
+
+Reruns start again from those originals, so running it twice never rewrites the
+rewrite.
+
+Call it from a workflow of its own, so the repository also gets a manual **Run
+workflow** button for one tag, a range of tags, or a dry run that only prints the
+result. The header of [`release-notes.yml`](.github/workflows/release-notes.yml) has
+the full caller to copy, including those manual inputs; its core is:
+
+```yaml
+jobs:
+  polish:
+    permissions:
+      contents: write       # edit the release
+      pull-requests: read   # read the PRs it lists
+      id-token: write       # find this workflow's commit, to run its scripts
+    uses: FalkorDB/.github/.github/workflows/release-notes.yml@<full commit sha>
+    with:
+      product: FalkorDB Python client
+      product-description: the Python library for FalkorDB graph databases
+      tag: ${{ inputs.tag }}
+      from-tag: ${{ inputs.from_tag }}
+      dry-run: ${{ inputs.dry_run || false }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+| Name | Kind | Required | Description |
+| ---- | ---- | -------- | ----------- |
+| `product` | input | yes | The product's name as the notes should call it. |
+| `product-description` | input | no | One phrase on what the product is, for the model's context. |
+| `whats-new` | input | no | Lead the notes with a short `## What's New` section. Only for a product that shows it to users after they upgrade, as FalkorDB Browser does. Defaults to `false`. |
+| `tag` | input | no | Release tag to rewrite, or the newest one of a range. Empty on a release event. |
+| `from-tag` | input | no | Oldest tag of a range; every published release from it through `tag` is rewritten. |
+| `dry-run` | input | no | Print the new notes without updating the release. |
+| `OPENAI_API_KEY` | secret | yes | Key for the Azure OpenAI resource. |
+| `AZURE_OPENAI_ENDPOINT` | variable | yes | The resource URL, e.g. `https://my-resource.openai.azure.com`. Set on the organization or the calling repository. |
+| `AZURE_OPENAI_DEPLOYMENT` | variable | no | The model deployment name. Defaults to `gpt-6-luna`. |
+
+A section between `<!-- release-downloads:start -->` and `<!-- release-downloads:end -->`
+lines is never shown to the model and is put back unchanged. FalkorDB Browser keeps its
+download links there.
+
+Before relying on it, run it by hand with **dry-run** on to check the output.
+
+## Contributing
+
+Changes to this repository affect the whole organization, so please open a pull
+request rather than pushing to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+the general process, and report security issues privately as described in
+[SECURITY.md](SECURITY.md).
+
+## Community
+
+- [Discord](https://discord.gg/6M4QwDXn2w)
+- [GitHub Discussions](https://github.com/orgs/FalkorDB/discussions)
+- [FalkorDB Cloud](https://app.falkordb.cloud)
