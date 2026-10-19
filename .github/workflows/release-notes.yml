@@ -32,7 +32,7 @@
 #         contents: write       # edit the release
 #         pull-requests: read   # read the PRs it lists
 #         id-token: write       # find this workflow's commit, to run its scripts
-#       uses: FalkorDB/.github/.github/workflows/release-notes.yml@<full commit sha>
+#       uses: FalkorDB/.github/.github/workflows/release-notes.yml@main
 #       with:
 #         product: FalkorDB Python client
 #         product-description: the Python library for FalkorDB graph databases
@@ -46,10 +46,11 @@
 # AZURE_OPENAI_DEPLOYMENT (defaults to gpt-6-luna), set on the organization or
 # the calling repository; the secret likewise.
 #
-# Pin to a full commit SHA rather than a branch: a mutable ref would let any
-# later change here run with the caller's secret and a release-write token.
-# Dependabot's github-actions ecosystem updates `jobs.<id>.uses` pins, so where
-# the calling repo has it enabled the pin is kept current automatically.
+# Following @main means a change merged here reaches every caller on its next
+# run, with the caller's secret and a release-write token, so changes here go
+# through a reviewed pull request. A full commit SHA works too, for a caller
+# that wants to take changes on its own schedule: the scripts are checked out
+# at whichever commit the caller's ref resolves to.
 #
 # The `github` context always belongs to the caller, so the release event, the
 # repository and its token below are the calling repo's without being passed in.

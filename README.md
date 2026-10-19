@@ -28,6 +28,23 @@ specific to one project belongs in that project's own repository.
 
 ## Reusable workflows
 
+Call a shared workflow at `@main`:
+
+```yaml
+jobs:
+  <job-id>:
+    uses: FalkorDB/.github/.github/workflows/<name>.yml@main
+```
+
+That way a fix merged here reaches every project on its next run, with no change in
+each repository. It also means every change here runs with the callers' secrets and
+tokens, so it must go through a reviewed pull request, never a direct push.
+
+Pinning a full commit SHA instead is still fine, for a repository that wants to take
+changes on its own schedule. Dependabot's `github-actions` ecosystem keeps such pins
+current where it is enabled; the client libraries call `report-scheduled-failure`
+this way.
+
 ### `report-scheduled-failure`
 
 A cron-triggered workflow has nobody watching it, so a failing nightly run can go
@@ -44,7 +61,7 @@ report-scheduled-failure:
   if: ${{ always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure') }}
   permissions:
     issues: write  # required: a called workflow can only downgrade permissions
-  uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@<full commit sha>
+  uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@main
   secrets:
     DRIVERS_GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.DRIVERS_GOOGLE_CHAT_WEBHOOK_URL }}
 ```
@@ -53,10 +70,6 @@ report-scheduled-failure:
 | ---- | ---- | -------- | ----------- |
 | `issue-title` | input | no | Title of the tracking issue. Defaults to `CI is failing against falkordb/falkordb:edge`; keep it stable per repository. |
 | `DRIVERS_GOOGLE_CHAT_WEBHOOK_URL` | secret | no | Google Chat incoming webhook. When unset, the tracking-issue fallback is used. |
-
-**Pin to a full commit SHA, not a branch.** Passing secrets to a mutable ref would let
-any later change here run with the caller's secrets. Dependabot's `github-actions`
-ecosystem keeps `uses:` pins up to date in repositories where it is enabled.
 
 ### `release-notes`
 
@@ -84,7 +97,7 @@ jobs:
       contents: write       # edit the release
       pull-requests: read   # read the PRs it lists
       id-token: write       # find this workflow's commit, to run its scripts
-    uses: FalkorDB/.github/.github/workflows/release-notes.yml@<full commit sha>
+    uses: FalkorDB/.github/.github/workflows/release-notes.yml@main
     with:
       product: FalkorDB Python client
       product-description: the Python library for FalkorDB graph databases
