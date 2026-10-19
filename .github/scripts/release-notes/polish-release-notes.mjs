@@ -39,17 +39,21 @@ const original = release.body ?? "";
 // Re-running on already polished notes would rewrite the rewrite, so start
 // again from the original notes kept in the collapsed section. The wrapper is
 // only trusted at the body's edges (marker first, closing tag last), since PR
-// text inside the notes can contain the same strings; the polished part never
-// holds the summary line (it is stripped below), so its first occurrence opens
-// the stored notes. They are sliced out as written, whitespace and all.
+// text inside the notes can contain the same strings. The stored notes open at
+// the last "<details>" line followed by the summary line: the polished part
+// above can be edited by hand on the release page, so a copy pasted there must
+// not count, while GitHub's generated notes hold one line per PR and so never
+// carry the two-line wrapper. They are sliced out as written, whitespace and all.
+const OPENING = new RegExp(`\\r?\\n<details>\\r?\\n${SUMMARY}`, "g");
+const opening = (body) => [...body.matchAll(OPENING)].at(-1);
 const unwrap = (body) => {
   if (!body.startsWith(MARKER)) return body;
-  const start = body.indexOf(SUMMARY);
+  const open = opening(body);
   const end = body.search(/\r?\n<\/details>\s*$/);
-  if (start === -1 || end === -1) {
+  if (!open || end === -1 || end < open.index) {
     throw new Error(`Release ${tag} is marked as polished but its stored original notes are incomplete; restore them by hand.`);
   }
-  return body.slice(start + SUMMARY.length, end).replace(/^\r?\n\r?\n/, "");
+  return body.slice(open.index + open[0].length, end).replace(/^\r?\n\r?\n/, "");
 };
 // Only a section with each marker on a line of its own counts, so a marker
 // quoted inside a line (a PR title, say) never cuts anyone's text.
@@ -60,7 +64,7 @@ const normalize = (text) => text.replace(/\r\n?/g, "\n");
 const stripKept = (text) => normalize(text).replace(KEPT, "\n").replace(/\n{3,}/g, "\n\n").trim();
 
 // The kept section lives in the visible notes, never in the collapsed originals.
-const visible = original.startsWith(MARKER) ? normalize(original).split(`<details>\n${SUMMARY}`)[0] : normalize(original);
+const visible = normalize(original.startsWith(MARKER) ? original.slice(0, opening(original)?.index) : original);
 const kept = [...visible.matchAll(KEPT)].at(-1)?.[1] ?? "";
 // Polished notes keep GitHub's originals apart, without the kept section;
 // anything else may carry it.
@@ -74,7 +78,10 @@ if (!generated) {
 // PR text is untrusted and unbounded: cap it, and strip the tags that frame
 // it so a description can't close its own block and pose as something else.
 // GitHub's generated notes carry PR titles too, so they get the same stripping.
+// The descriptions are capped together as well, so a release with hundreds of
+// PRs can't outgrow the model's context: each gets an even share of the total.
 const MAX_DESCRIPTION = 4000;
+const MAX_DESCRIPTIONS = 200000;
 const FRAMING_TAGS = /<\/?\s*(?:pr|title|description|generated_notes|pull_requests)\b[^>]*>/gi;
 const quote = (text, max = Infinity) => String(text ?? "").replace(FRAMING_TAGS, "").slice(0, max);
 
@@ -93,12 +100,14 @@ const viewPr = (number) => {
   }
 };
 
-const prs = prNumbers.map(viewPr).filter(Boolean).map((pr) => {
+const found = prNumbers.map(viewPr).filter(Boolean);
+const descriptionLength = Math.min(MAX_DESCRIPTION, Math.floor(MAX_DESCRIPTIONS / Math.max(found.length, 1)));
+const prs = found.map((pr) => {
   return [
     // A deleted account leaves the author null; GitHub shows it as "ghost".
     `<pr number="${pr.number}" author="${quote(pr.author?.login ?? "ghost").replace(/"/g, "")}" labels="${quote(pr.labels.map((l) => l.name).join(",")).replace(/"/g, "")}">`,
     `<title>${quote(pr.title)}</title>`,
-    `<description>\n${quote(pr.body, MAX_DESCRIPTION)}\n</description>`,
+    `<description>\n${quote(pr.body, descriptionLength)}\n</description>`,
     `</pr>`,
   ].join("\n");
 });
