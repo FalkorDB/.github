@@ -1,0 +1,9 @@
+{
+  "name": "polish-release-notes",
+  "private": true,
+  "description": "Dependencies of polish-release-notes.mjs, installed with npm ci --ignore-scripts by the shared release-notes workflow.",
+  "type": "module",
+  "dependencies": {
+    "openai": "7.32.0"
+  }
+}

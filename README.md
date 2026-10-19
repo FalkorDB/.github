@@ -15,6 +15,7 @@ Organization-wide defaults and shared automation for every repository in the
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Default contribution guidelines: licensing, issues vs. Discussions, PR flow. |
 | [`SECURITY.md`](SECURITY.md) | Default security policy and vulnerability reporting process. |
 | [`.github/workflows/report-scheduled-failure.yml`](.github/workflows/report-scheduled-failure.yml) | Reusable workflow that reports failing nightly runs against `falkordb/falkordb:edge`. |
+| [`.github/workflows/release-notes.yml`](.github/workflows/release-notes.yml) | Reusable workflow that rewrites a release's auto-generated notes into user-facing ones. Its scripts live in [`.github/scripts/release-notes/`](.github/scripts/release-notes). |
 
 ## Default community health files
 
@@ -56,6 +57,61 @@ report-scheduled-failure:
 **Pin to a full commit SHA, not a branch.** Passing secrets to a mutable ref would let
 any later change here run with the caller's secrets. Dependabot's `github-actions`
 ecosystem keeps `uses:` pins up to date in repositories where it is enabled.
+
+### `release-notes`
+
+GitHub's auto-generated release notes list PR titles, most of which mean little to
+users. When a release is published, this workflow rewrites them with an Azure OpenAI
+model:
+
+- It drops changes users don't notice, such as dependency bumps, CI and refactors.
+- It writes one plain sentence per remaining change, under features, improvements,
+  fixes, security and deployment.
+- It keeps GitHub's original notes collapsed at the bottom.
+
+Reruns start again from those originals, so running it twice never rewrites the
+rewrite.
+
+Call it from a workflow of its own, so the repository also gets a manual **Run
+workflow** button for one tag, a range of tags, or a dry run that only prints the
+result. The header of [`release-notes.yml`](.github/workflows/release-notes.yml) has
+the full caller to copy, including those manual inputs; its core is:
+
+```yaml
+jobs:
+  polish:
+    permissions:
+      contents: write       # edit the release
+      pull-requests: read   # read the PRs it lists
+      id-token: write       # find this workflow's commit, to run its scripts
+    uses: FalkorDB/.github/.github/workflows/release-notes.yml@<full commit sha>
+    with:
+      product: FalkorDB Python client
+      product-description: the Python library for FalkorDB graph databases
+      tag: ${{ inputs.tag }}
+      from-tag: ${{ inputs.from_tag }}
+      dry-run: ${{ inputs.dry_run || false }}
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+| Name | Kind | Required | Description |
+| ---- | ---- | -------- | ----------- |
+| `product` | input | yes | The product's name as the notes should call it. |
+| `product-description` | input | no | One phrase on what the product is, for the model's context. |
+| `whats-new` | input | no | Lead the notes with a short `## What's New` section. Only for a product that shows it to users after they upgrade, as FalkorDB Browser does. Defaults to `false`. |
+| `tag` | input | no | Release tag to rewrite, or the newest one of a range. Empty on a release event. |
+| `from-tag` | input | no | Oldest tag of a range; every published release from it through `tag` is rewritten. |
+| `dry-run` | input | no | Print the new notes without updating the release. |
+| `OPENAI_API_KEY` | secret | yes | Key for the Azure OpenAI resource. |
+| `AZURE_OPENAI_ENDPOINT` | variable | yes | The resource URL, e.g. `https://my-resource.openai.azure.com`. Set on the organization or the calling repository. |
+| `AZURE_OPENAI_DEPLOYMENT` | variable | no | The model deployment name. Defaults to `gpt-6-luna`. |
+
+A section between `<!-- release-downloads:start -->` and `<!-- release-downloads:end -->`
+lines is never shown to the model and is put back unchanged. FalkorDB Browser keeps its
+download links there.
+
+Before relying on it, run it by hand with **dry-run** on to check the output.
 
 ## Contributing
 

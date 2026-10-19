@@ -1,0 +1,183 @@
+// Rewrites a release's auto-generated notes into user-facing release notes,
+// optionally led by a "## What's New" section that the product shows users
+// after they upgrade; edit it on the release page if it needs work.
+// Run by the shared release-notes workflow. Reads RELEASE_TAG,
+// GITHUB_REPOSITORY, PRODUCT (its name in the notes), PRODUCT_DESCRIPTION
+// (optional, one phrase on what it is) and WHATS_NEW ("true" to write that
+// section) from the environment, and needs GH_TOKEN (for the gh CLI), plus the
+// Azure OpenAI resource: OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT (e.g.
+// https://my-resource.openai.azure.com) and AZURE_OPENAI_DEPLOYMENT (the
+// deployment name; defaults to gpt-6-luna).
+import { execFileSync } from "node:child_process";
+import OpenAI from "openai";
+
+const tag = process.env.RELEASE_TAG;
+const repo = process.env.GITHUB_REPOSITORY;
+const product = process.env.PRODUCT?.trim();
+const productDescription = process.env.PRODUCT_DESCRIPTION?.trim();
+const whatsNew = process.env.WHATS_NEW === "true";
+const dryRun = process.env.DRY_RUN === "true";
+const MARKER = "<!-- polished-release-notes -->";
+const SUMMARY = "<summary>Original generated notes</summary>";
+// A section another tool keeps in the notes, such as the browser's download
+// links (its release-downloads.mjs writes them from the files attached to the
+// release). It is not the model's: it is kept out of what the model sees and
+// put back as it was, for that tool to keep up to date.
+const START = "<!-- release-downloads:start -->";
+const END = "<!-- release-downloads:end -->";
+
+if (!product) {
+  console.error("Set PRODUCT to the product's name.");
+  process.exit(1);
+}
+
+const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+const release = JSON.parse(gh("release", "view", tag, "--repo", repo, "--json", "body"));
+const original = release.body ?? "";
+
+// Re-running on already polished notes would rewrite the rewrite, so start
+// again from the original notes kept in the collapsed section. The wrapper is
+// only trusted at the body's edges (marker first, closing tag last), since PR
+// text inside the notes can contain the same strings. The stored notes open at
+// the last "<details>" line followed by the summary line: the polished part
+// above can be edited by hand on the release page, so a copy pasted there must
+// not count, while GitHub's generated notes hold one line per PR and so never
+// carry the two-line wrapper. They are sliced out as written, whitespace and all.
+const OPENING = new RegExp(`\\r?\\n<details>\\r?\\n${SUMMARY}`, "g");
+const opening = (body) => [...body.matchAll(OPENING)].at(-1);
+const unwrap = (body) => {
+  if (!body.startsWith(MARKER)) return body;
+  const open = opening(body);
+  const end = body.search(/\r?\n<\/details>\s*$/);
+  if (!open || end === -1 || end < open.index) {
+    throw new Error(`Release ${tag} is marked as polished but its stored original notes are incomplete; restore them by hand.`);
+  }
+  return body.slice(open.index + open[0].length, end).replace(/^\r?\n\r?\n/, "");
+};
+// Only a section with each marker on a line of its own counts, so a marker
+// quoted inside a line (a PR title, say) never cuts anyone's text.
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const KEPT = new RegExp(`(?:^|\\n)(${escapeRegExp(START)}\\n[\\s\\S]*?\\n${escapeRegExp(END)})(?=\\n|$)`, "g");
+// Text from an editor or a model may come with \r\n line endings.
+const normalize = (text) => text.replace(/\r\n?/g, "\n");
+const stripKept = (text) => normalize(text).replace(KEPT, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+// The kept section lives in the visible notes, never in the collapsed originals.
+const visible = normalize(original.startsWith(MARKER) ? original.slice(0, opening(original)?.index) : original);
+const kept = [...visible.matchAll(KEPT)].at(-1)?.[1] ?? "";
+// Polished notes keep GitHub's originals apart, without the kept section;
+// anything else may carry it.
+const generated = original.startsWith(MARKER) ? unwrap(original) : stripKept(original);
+
+if (!generated) {
+  console.error(`Release ${tag} has no notes to rewrite.`);
+  process.exit(1);
+}
+
+// PR text is untrusted and unbounded: cap it, and strip the tags that frame
+// it so a description can't close its own block and pose as something else.
+// GitHub's generated notes carry PR titles too, so they get the same stripping.
+// The descriptions are capped together as well, so a release with hundreds of
+// PRs can't outgrow the model's context: each gets an even share of the total.
+const MAX_DESCRIPTION = 4000;
+const MAX_DESCRIPTIONS = 200000;
+const FRAMING_TAGS = /<\/?\s*(?:pr|title|description|generated_notes|pull_requests)\b[^>]*>/gi;
+const quote = (text, max = Infinity) => String(text ?? "").replace(FRAMING_TAGS, "").slice(0, max);
+
+// The generated lines only carry PR titles; the descriptions say what changed for users.
+const prNumbers = [...new Set([...generated.matchAll(/\/pull\/(\d+)/g)].map((m) => m[1]))];
+// A deleted PR (spam, or removed by its author) can still be linked from the
+// notes. It has nothing to add, so it is skipped; any other failure, such as
+// an expired token or a rate limit, still stops the run.
+const viewPr = (number) => {
+  try {
+    return JSON.parse(execFileSync("gh", ["pr", "view", number, "--repo", repo, "--json", "number,title,author,labels,body"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 }));
+  } catch (err) {
+    if (!/Could not resolve to a PullRequest/.test(String(err.stderr))) throw err;
+    console.warn(`Skipping #${number}: it no longer exists on GitHub.`);
+    return null;
+  }
+};
+
+const found = prNumbers.map(viewPr).filter(Boolean);
+const descriptionLength = Math.min(MAX_DESCRIPTION, Math.floor(MAX_DESCRIPTIONS / Math.max(found.length, 1)));
+const prs = found.map((pr) => {
+  return [
+    // A deleted account leaves the author null; GitHub shows it as "ghost".
+    `<pr number="${pr.number}" author="${quote(pr.author?.login ?? "ghost").replace(/"/g, "")}" labels="${quote(pr.labels.map((l) => l.name).join(",")).replace(/"/g, "")}">`,
+    `<title>${quote(pr.title)}</title>`,
+    `<description>\n${quote(pr.body, descriptionLength)}\n</description>`,
+    `</pr>`,
+  ].join("\n");
+});
+
+const whatsNewRules = `
+
+Before the grouped notes, add a "## What's New" section when the release has something a user would want pointed out on upgrade: a new feature, a noticeably better workflow, or a change they must act on. ${product} shows this section to users after they upgrade, so it is a short highlight reel, not a summary of the release:
+- 1 to 4 bullets, most important first, each in the form "- **Short name of the change** — one sentence on what the user can now do or must do." No PR links here.
+- Leave out bug fixes, security patches, and deployment changes unless one changes what users see or do.
+- When nothing qualifies, leave the section out entirely: no heading, no placeholder. Most patch releases have nothing to highlight.
+- Use exactly the heading "## What's New"; ${product} looks for it.`;
+
+const system = `You write release notes for ${product}${productDescription ? `, ${productDescription}` : ""}. Readers are users and operators upgrading ${product}, not the developers who wrote the code.
+
+You get GitHub's auto-generated notes for a release and the description of each PR they list. Rewrite them into release notes:
+
+- Drop entries with no effect on users: dependency bumps (unless they fix a security issue, then list it once under Security), version bumps, CI and workflow changes, test-only changes, refactors, fixes to review comments, merges of staging/main branches, and changes to code that is not released.
+- For each remaining change, write one plain sentence saying what changed for the user, using the PR description to understand it. Describe behavior, not files or functions. Merge entries that describe the same change.
+- Group under these headings, in this order, and leave out any that would be empty: "### ✨ New features", "### 🛠 Improvements", "### 🐛 Bug fixes", "### 🔒 Security", "### ⚙️ Deployment" (Docker, Helm chart, configuration). Mention breaking changes or required upgrade steps first, under "### ⚠️ Breaking changes".
+- End each bullet with the PR link in the form ([#123](https://github.com/${repo}/pull/123)).
+- Keep the "New Contributors" section if present, and the "**Full Changelog**" line exactly as given.
+- If nothing user-facing remains, write a single line saying this release contains maintenance updates only, followed by the Full Changelog line.${whatsNew ? whatsNewRules : ""}
+
+Output only the Markdown for the release body. No title, no preamble.`;
+
+// Only the resource matters: a full request URL copied from the portal
+// (".../openai/responses?api-version=...") works as well as the bare one.
+let endpoint;
+try {
+  const url = new URL(process.env.AZURE_OPENAI_ENDPOINT?.trim() ?? "");
+  // The key travels in a header, so never over plain http.
+  if (url.protocol !== "https:") throw new Error("not https");
+  endpoint = url.origin;
+} catch {
+  console.error("AZURE_OPENAI_ENDPOINT must be an https:// URL.");
+  process.exit(1);
+}
+
+// Azure's /openai/v1/ endpoint speaks the OpenAI API, with the deployment as the model.
+const apiKey = process.env.OPENAI_API_KEY;
+const client = new OpenAI({ apiKey, baseURL: `${endpoint}/openai/v1/`, defaultHeaders: { "api-key": apiKey } });
+const response = await client.responses.create({
+  model: process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-6-luna",
+  max_output_tokens: 16000,
+  reasoning: { effort: "medium" },
+  instructions: system,
+  input: `Release ${tag}\n\n<generated_notes>\n${quote(generated)}\n</generated_notes>\n\n<pull_requests>\n${prs.join("\n\n")}\n</pull_requests>`,
+});
+
+// A cut-off or failed response would replace good notes with half of them.
+if (response.status !== "completed") {
+  console.error(`Model stopped with status ${response.status} (${response.incomplete_details?.reason ?? "no reason given"}); leaving the release notes unchanged.`);
+  process.exit(1);
+}
+
+// The summary line marks where the original notes start on a rerun, so the
+// model's output must not contain it.
+// Nor may it carry the kept section's markers, which another tool owns.
+// A whole section first (dropping only its markers would leave a stale copy of
+// it behind), then any stray marker.
+const polished = stripKept(response.output_text.replaceAll(SUMMARY, "")).replaceAll(START, "").replaceAll(END, "").trim();
+if (!polished) {
+  console.error("Model returned no text; leaving the release notes unchanged.");
+  process.exit(1);
+}
+
+const body = `${MARKER}\n${polished}\n\n${kept ? `${kept}\n\n` : ""}<details>\n<summary>Original generated notes</summary>\n\n${generated}\n</details>\n`;
+
+console.log(body);
+
+if (!dryRun) {
+  execFileSync("gh", ["release", "edit", tag, "--repo", repo, "--notes-file", "-"], { input: body, stdio: ["pipe", "inherit", "inherit"] });
+}
