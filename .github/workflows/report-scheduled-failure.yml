@@ -14,17 +14,17 @@
 #     if: ${{ always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure') }}
 #     permissions:
 #       issues: write  # required: a called workflow can only downgrade permissions
-#     uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@<full commit sha>
+#     uses: FalkorDB/.github/.github/workflows/report-scheduled-failure.yml@main
 #     secrets:
 #       DRIVERS_GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.DRIVERS_GOOGLE_CHAT_WEBHOOK_URL }}
 #
-# Pin to a full commit SHA rather than a branch: `secrets: inherit` and mutable
-# refs together would let any later change here run with the caller's secrets.
-# Dependabot's github-actions ecosystem updates `jobs.<id>.uses` pins, so where
-# the calling repo has it enabled (all the clients currently do), the pin is
-# kept current automatically and the clients still get changes made here without
-# hand-editing eight workflows. Without such an updater, the pin is yours to
-# bump.
+# Following @main means a change merged here reaches every caller on its next
+# run, with the caller's secrets, so changes here go through a reviewed pull
+# request. A full commit SHA works too, for a caller that wants to take changes
+# on its own schedule: Dependabot's github-actions ecosystem updates
+# `jobs.<id>.uses` pins, so where the calling repo has it enabled (all the
+# clients currently do), the pin is kept current automatically. Without such an
+# updater, the pin is yours to bump.
 #
 # The `github` context always belongs to the caller, so the repository, workflow
 # name and run URL below are the calling repo's without being passed in.
