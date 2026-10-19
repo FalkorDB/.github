@@ -1,0 +1,221 @@
+# Shared release-notes polisher for FalkorDB projects.
+#
+# Rewrites a release's auto-generated notes into user-facing ones with an Azure
+# OpenAI model (see .github/scripts/release-notes/polish-release-notes.mjs),
+# keeping GitHub's originals collapsed underneath. Reruns start again from those
+# originals, so running it twice never rewrites the rewrite.
+#
+# Call it from a workflow in each project, on release and by hand:
+#
+#   name: Polish release notes
+#   on:
+#     release:
+#       types: [published]
+#     workflow_dispatch:
+#       inputs:
+#         tag:
+#           description: 'Release tag to rewrite (e.g. v2.6.2), or the newest one of a range'
+#           required: true
+#         from_tag:
+#           description: 'Oldest release tag of a range (e.g. v2.4.0); every published release from it through tag is rewritten. Leave empty for tag alone.'
+#           required: false
+#           default: ''
+#         dry_run:
+#           description: 'Print the new notes without updating the release'
+#           type: boolean
+#           default: false
+#   permissions:
+#     contents: read
+#   jobs:
+#     polish:
+#       permissions:
+#         contents: write       # edit the release
+#         pull-requests: read   # read the PRs it lists
+#         id-token: write       # find this workflow's commit, to run its scripts
+#       uses: FalkorDB/.github/.github/workflows/release-notes.yml@<full commit sha>
+#       with:
+#         product: FalkorDB Python client
+#         product-description: the Python library for FalkorDB graph databases
+#         tag: ${{ inputs.tag }}
+#         from-tag: ${{ inputs.from_tag }}
+#         dry-run: ${{ inputs.dry_run || false }}
+#       secrets:
+#         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+#
+# It also needs the AZURE_OPENAI_ENDPOINT variable, and optionally
+# AZURE_OPENAI_DEPLOYMENT (defaults to gpt-6-luna), set on the organization or
+# the calling repository; the secret likewise.
+#
+# Pin to a full commit SHA rather than a branch: a mutable ref would let any
+# later change here run with the caller's secret and a release-write token.
+# Dependabot's github-actions ecosystem updates `jobs.<id>.uses` pins, so where
+# the calling repo has it enabled the pin is kept current automatically.
+#
+# The `github` context always belongs to the caller, so the release event, the
+# repository and its token below are the calling repo's without being passed in.
+
+name: Polish release notes
+
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: The product's name as the notes should call it, e.g. "FalkorDB Browser".
+        required: true
+        type: string
+      product-description:
+        description: >-
+          Optional phrase on what the product is, for the model's context,
+          e.g. "a web UI for exploring and querying FalkorDB graph databases".
+        required: false
+        type: string
+        default: ''
+      whats-new:
+        description: >-
+          Lead the notes with a short "## What's New" section, for a product
+          that shows it to users after they upgrade.
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: >-
+          Release tag to rewrite, or the newest one of a range. Leave empty on a
+          release event to rewrite the published release.
+        required: false
+        type: string
+        default: ''
+      from-tag:
+        description: >-
+          Oldest release tag of a range; every published release from it
+          through tag is rewritten. Leave empty for tag alone.
+        required: false
+        type: string
+        default: ''
+      dry-run:
+        description: Print the new notes without updating the release.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      OPENAI_API_KEY:
+        description: Key for the Azure OpenAI resource at AZURE_OPENAI_ENDPOINT.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The releases to rewrite: the published one, the given tag, or every
+  # published release in the given range, oldest first.
+  releases:
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.list.outputs.tags }}
+    steps:
+      - name: List releases
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          FROM_TAG: ${{ inputs.from-tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "::error::No release to rewrite: pass tag, or call this on a release event."
+            exit 1
+          fi
+          if [ -z "$FROM_TAG" ]; then
+            jq -cn --arg tag "$TAG" '[$tag]' > tags.json
+          else
+            # Drafts have no notes worth keeping, and only published releases
+            # can be edited without publishing them. Every page, not a capped
+            # list. A pre-release sorts before its final release (v2.6.2-rc.1 <
+            # v2.6.2): sort -V puts "~" before everything, so it stands in for
+            # the first "-" while sorting.
+            gh api --paginate "repos/$REPO/releases?per_page=100" --jq '.[] | select(.draft | not) | .tag_name' \
+              | sed 's/-/~/' | sort -V | sed 's/~/-/' > all.txt
+            for t in "$FROM_TAG" "$TAG"; do
+              grep -qxF -- "$t" all.txt || { echo "::error::$t is not a published release"; exit 1; }
+            done
+            awk -v from="$FROM_TAG" -v to="$TAG" '$0 == from { on = 1 } on { print } $0 == to { exit }' all.txt > range.txt
+            if ! grep -qxF -- "$TAG" range.txt; then
+              echo "::error::$FROM_TAG is newer than $TAG"
+              exit 1
+            fi
+            jq -cR -s 'split("\n") | map(select(length > 0))' range.txt > tags.json
+          fi
+          # A matrix takes at most 256 jobs.
+          if [ "$(jq length tags.json)" -gt 256 ]; then
+            echo "::error::More than 256 releases in range; split it up."
+            exit 1
+          fi
+          echo "Releases to rewrite: $(jq -r 'join(", ")' tags.json)"
+          echo "tags=$(cat tags.json)" >> "$GITHUB_OUTPUT"
+
+  polish:
+    needs: releases
+    runs-on: ubuntu-latest
+    strategy:
+      # One release failing must not stop the rest; a few at a time keeps
+      # within the model deployment's rate limit.
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        tag: ${{ fromJSON(needs.releases.outputs.tags) }}
+    # The calling repo's other jobs that edit a release's notes (the browser's
+    # download links, say) join this group, so no two rewrite them at once.
+    concurrency:
+      group: release-notes-${{ matrix.tag }}
+      # Queue every waiting job (up to 100) instead of letting a newer one
+      # replace it: each must still run, one at a time.
+      queue: max
+    permissions:
+      contents: write
+      pull-requests: read
+      id-token: write
+    steps:
+      # A called workflow is told nothing about its own ref: the github context
+      # is the caller's. The run's OIDC token names the commit this file was
+      # taken from, so the scripts come from that same commit, never a branch.
+      - name: Find this workflow's commit
+        id: self
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
+          payload=$(cut -d. -f2 <<< "$token" | tr '_-' '/+')
+          # base64url drops the padding that base64 -d needs.
+          while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload+="="; done
+          claims=$(base64 -d <<< "$payload")
+          echo "repository=$(jq -r '.job_workflow_ref | split("/.github/workflows/")[0]' <<< "$claims")" >> "$GITHUB_OUTPUT"
+          echo "sha=$(jq -r .job_workflow_sha <<< "$claims")" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release-notes scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.self.outputs.repository }}
+          ref: ${{ steps.self.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/release-notes
+          path: release-notes
+
+      # Installed outside the checkout, from the committed lockfile and without
+      # install scripts, so the dependency tree can't change unreviewed in a job
+      # that holds a release-write token.
+      - name: Install OpenAI SDK
+        run: |
+          cp release-notes/.github/scripts/release-notes/{polish-release-notes.mjs,package.json,package-lock.json} "$RUNNER_TEMP/"
+          cd "$RUNNER_TEMP"
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Rewrite release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Organization or repository variables (Settings → Secrets and variables → Actions → Variables).
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          PRODUCT: ${{ inputs.product }}
+          PRODUCT_DESCRIPTION: ${{ inputs.product-description }}
+          WHATS_NEW: ${{ inputs.whats-new }}
+          RELEASE_TAG: ${{ matrix.tag }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: node "$RUNNER_TEMP/polish-release-notes.mjs"
