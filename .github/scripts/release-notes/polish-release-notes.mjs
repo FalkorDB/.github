@@ -5,7 +5,7 @@
 // GITHUB_REPOSITORY, PRODUCT (its name in the notes), PRODUCT_DESCRIPTION
 // (optional, one phrase on what it is) and WHATS_NEW ("true" to write that
 // section) from the environment, and needs GH_TOKEN (for the gh CLI), plus the
-// Azure OpenAI resource: OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT (e.g.
+// Azure OpenAI resource: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT (e.g.
 // https://my-resource.openai.azure.com) and AZURE_OPENAI_DEPLOYMENT (the
 // deployment name; defaults to gpt-6-luna).
 import { execFileSync } from "node:child_process";
@@ -144,7 +144,7 @@ try {
 }
 
 // Azure's /openai/v1/ endpoint speaks the OpenAI API, with the deployment as the model.
-const apiKey = process.env.OPENAI_API_KEY;
+const apiKey = process.env.AZURE_OPENAI_API_KEY;
 const client = new OpenAI({ apiKey, baseURL: `${endpoint}/openai/v1/`, defaultHeaders: { "api-key": apiKey } });
 const response = await client.responses.create({
   model: process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-6-luna",

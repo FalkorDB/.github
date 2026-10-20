@@ -40,7 +40,7 @@
 #         from-tag: ${{ inputs.from_tag }}
 #         dry-run: ${{ inputs.dry_run || false }}
 #       secrets:
-#         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+#         AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
 #
 # It also needs the AZURE_OPENAI_ENDPOINT variable, and optionally
 # AZURE_OPENAI_DEPLOYMENT (defaults to gpt-6-luna), set on the organization or
@@ -98,7 +98,7 @@ on:
         type: boolean
         default: false
     secrets:
-      OPENAI_API_KEY:
+      AZURE_OPENAI_API_KEY:
         description: Key for the Azure OpenAI resource at AZURE_OPENAI_ENDPOINT.
         required: true
 
@@ -210,7 +210,7 @@ jobs:
       - name: Rewrite release notes
         env:
           GH_TOKEN: ${{ github.token }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           # Organization or repository variables (Settings → Secrets and variables → Actions → Variables).
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}

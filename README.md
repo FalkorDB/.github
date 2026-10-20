@@ -105,7 +105,7 @@ jobs:
       from-tag: ${{ inputs.from_tag }}
       dry-run: ${{ inputs.dry_run || false }}
     secrets:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
 ```
 
 | Name | Kind | Required | Description |
@@ -116,7 +116,7 @@ jobs:
 | `tag` | input | no | Release tag to rewrite, or the newest one of a range. Empty on a release event. |
 | `from-tag` | input | no | Oldest tag of a range; every published release from it through `tag` is rewritten. |
 | `dry-run` | input | no | Print the new notes without updating the release. |
-| `OPENAI_API_KEY` | secret | yes | Key for the Azure OpenAI resource. |
+| `AZURE_OPENAI_API_KEY` | secret | yes | Key for the Azure OpenAI resource. |
 | `AZURE_OPENAI_ENDPOINT` | variable | yes | The resource URL, e.g. `https://my-resource.openai.azure.com`. Set on the organization or the calling repository. |
 | `AZURE_OPENAI_DEPLOYMENT` | variable | no | The model deployment name. Defaults to `gpt-6-luna`. |
 
