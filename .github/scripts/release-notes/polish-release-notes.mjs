@@ -19,10 +19,9 @@ const whatsNew = process.env.WHATS_NEW === "true";
 const dryRun = process.env.DRY_RUN === "true";
 const MARKER = "<!-- polished-release-notes -->";
 const SUMMARY = "<summary>Original generated notes</summary>";
-// A section another tool keeps in the notes, such as the browser's download
-// links (its release-downloads.mjs writes them from the files attached to the
-// release). It is not the model's: it is kept out of what the model sees and
-// put back as it was, for that tool to keep up to date.
+// FalkorDB Browser's notes used to carry a "## Download" section between these
+// markers, repeating the release's assets. Notes written back then may still
+// have it, so it is cut out: the model never sees it and it isn't kept.
 const START = "<!-- release-downloads:start -->";
 const END = "<!-- release-downloads:end -->";
 
@@ -58,17 +57,15 @@ const unwrap = (body) => {
 // Only a section with each marker on a line of its own counts, so a marker
 // quoted inside a line (a PR title, say) never cuts anyone's text.
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const KEPT = new RegExp(`(?:^|\\n)(${escapeRegExp(START)}\\n[\\s\\S]*?\\n${escapeRegExp(END)})(?=\\n|$)`, "g");
+const DOWNLOADS = new RegExp(`(?:^|\\n)${escapeRegExp(START)}\\n[\\s\\S]*?\\n${escapeRegExp(END)}(?=\\n|$)`, "g");
 // Text from an editor or a model may come with \r\n line endings.
 const normalize = (text) => text.replace(/\r\n?/g, "\n");
-const stripKept = (text) => normalize(text).replace(KEPT, "\n").replace(/\n{3,}/g, "\n\n").trim();
+const stripDownloads = (text) => normalize(text).replace(DOWNLOADS, "\n").replace(/\n{3,}/g, "\n\n").trim();
 
-// The kept section lives in the visible notes, never in the collapsed originals.
-const visible = normalize(original.startsWith(MARKER) ? original.slice(0, opening(original)?.index) : original);
-const kept = [...visible.matchAll(KEPT)].at(-1)?.[1] ?? "";
-// Polished notes keep GitHub's originals apart, without the kept section;
-// anything else may carry it.
-const generated = original.startsWith(MARKER) ? unwrap(original) : stripKept(original);
+// Polished notes keep GitHub's originals apart, without the old section, which
+// a rerun drops with the rest of the polished part; an unpolished body may
+// carry it among GitHub's notes.
+const generated = original.startsWith(MARKER) ? unwrap(original) : stripDownloads(original);
 
 if (!generated) {
   console.error(`Release ${tag} has no notes to rewrite.`);
@@ -165,16 +162,15 @@ if (response.status !== "completed") {
 
 // The summary line marks where the original notes start on a rerun, so the
 // model's output must not contain it.
-// Nor may it carry the kept section's markers, which another tool owns.
-// A whole section first (dropping only its markers would leave a stale copy of
-// it behind), then any stray marker.
-const polished = stripKept(response.output_text.replaceAll(SUMMARY, "")).replaceAll(START, "").replaceAll(END, "").trim();
+// Nor a Download section, should the model reproduce one: a whole section
+// first, then any stray marker.
+const polished = stripDownloads(response.output_text.replaceAll(SUMMARY, "")).replaceAll(START, "").replaceAll(END, "").trim();
 if (!polished) {
   console.error("Model returned no text; leaving the release notes unchanged.");
   process.exit(1);
 }
 
-const body = `${MARKER}\n${polished}\n\n${kept ? `${kept}\n\n` : ""}<details>\n<summary>Original generated notes</summary>\n\n${generated}\n</details>\n`;
+const body = `${MARKER}\n${polished}\n\n<details>\n<summary>Original generated notes</summary>\n\n${generated}\n</details>\n`;
 
 console.log(body);
 

@@ -120,9 +120,9 @@ jobs:
 | `AZURE_OPENAI_ENDPOINT` | variable | yes | The resource URL, e.g. `https://my-resource.openai.azure.com`. Set on the organization or the calling repository. |
 | `AZURE_OPENAI_DEPLOYMENT` | variable | no | The model deployment name. Defaults to `gpt-6-luna`. |
 
-A section between `<!-- release-downloads:start -->` and `<!-- release-downloads:end -->`
-lines is never shown to the model and is put back unchanged, for a product that keeps
-its own text there, such as download links.
+A leftover `## Download` section between `<!-- release-downloads:start -->` and
+`<!-- release-downloads:end -->` lines, from FalkorDB Browser's older notes, is never shown
+to the model and is dropped.
 
 Before relying on it, run it by hand with **dry-run** on to check the output.
 
