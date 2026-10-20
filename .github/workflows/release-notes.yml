@@ -163,12 +163,12 @@ jobs:
       max-parallel: 3
       matrix:
         tag: ${{ fromJSON(needs.releases.outputs.tags) }}
-    # The calling repo's other jobs that edit a release's notes (the browser's
-    # download links, say) join this group, so no two rewrite them at once.
+    # Any other job in the calling repo that edits a release's notes should
+    # join this group, so no two rewrite them at once.
     concurrency:
       group: release-notes-${{ matrix.tag }}
-      # Queue every waiting job (up to 100) instead of letting a newer one
-      # replace it: each must still run, one at a time.
+      # Queue every waiting run (up to 100) instead of letting a newer one
+      # replace it: a manual run during a release's own must not cancel it.
       queue: max
     permissions:
       contents: write
